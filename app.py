@@ -1,40 +1,91 @@
-# HR Chatbot - IMPROVED VERSION
-import gspread
+import streamlit as st
 import pandas as pd
-from google.colab import auth
-from google.auth import default
+import time
 
-print("🔐 Authenticating with Google...")
-auth.authenticate_user()
-creds, _ = default()
+# Page configuration
+st.set_page_config(
+    page_title="HR Buddy 🐶", 
+    page_icon="🐕", 
+    layout="centered"
+)
 
-print("📊 Setting up Google Sheets connection...")
-gc = gspread.authorize(creds)
+# Custom CSS for cute styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        color: #FF6B6B;
+        text-align: center;
+        margin-bottom: 0;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #4ECDC4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .bubble {
+        background: #E3F2FD;
+        border-radius: 20px;
+        padding: 15px;
+        margin: 10px 0;
+        border: 2px solid #BBDEFB;
+        font-size: 16px;
+    }
+    .user-bubble {
+        background: #FFEBEE;
+        border: 2px solid #FFCDD2;
+        margin-left: 20%;
+    }
+    .dog-bubble {
+        background: #E8F5E8;
+        border: 2px solid #C8E6C9;
+        margin-right: 20%;
+    }
+    .dog-container {
+        text-align: center;
+        margin: 20px 0;
+        font-family: monospace;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-# Your Google Sheet ID
-SHEET_ID = "17kyGCoOQFUGyeAsdzxwUc51r5saoaQOSnl2Ugv4J5hI"
+# Header with cute dog
+st.markdown('<h1 class="main-header">HR Buddy 🐶</h1>', unsafe_allow_html=True)
+st.markdown('<p class="sub-header">Your friendly HR assistant! Ask me about company policies!</p>', unsafe_allow_html=True)
 
-print("🔗 Opening your HR database...")
-try:
-    spreadsheet = gc.open_by_key(SHEET_ID)
-    worksheet = spreadsheet.get_worksheet(0)
-    all_data = worksheet.get_all_values()
-    
-    if len(all_data) > 1:
-        df = pd.DataFrame(all_data[1:], columns=all_data[0])
-        df = df.dropna(how='all')
-        print(f"✅ Loaded {len(df)} HR policies")
-        
-    else:
-        print("❌ No data found")
-        df = None
-        
-except Exception as e:
-    print(f"❌ Error: {e}")
-    df = None
+# Cute dog ASCII art
+dog_art = """
+    / \\__
+   (    @\\___
+   /         O
+  /   (_____/
+ /_____/   U
+"""
+
+st.markdown(f'<div class="dog-container"><pre>{dog_art}</pre></div>', unsafe_allow_html=True)
+
+# YOUR ACTUAL HR DATA - Copy from your Google Sheets
+hr_data = {
+    'annual leave': 'Full-time employees receive 14 paid annual leave days annually',
+    'medical leave': 'Employees get 14 paid medical days annually',
+    'maternity leave': 'Maternity leave policy provides 16 weeks of paid leave',
+    'work from home': 'Remote work requires manager approval. In general, we do not practise work from home anymore since the end of COVID period',
+    'health insurance': 'We do not have health insurance, we offer reimbursement of medical expenses of up to $200 instead.',
+    'sick leave': 'Employees get 14 sick days annually, in Singapore we called it medical leave',
+    'probation': 'Probation is usually 6 months',
+    'take medical leave during probation': 'During the first 3 months of employment, you are not entitled to any paid leave including paid medical leave. Any medical leave taken during that period is considered unpaid leave',
+    'aws': 'The company does not apply AWS for our employees. Only perfomance based bonus.',
+    'bonus': 'The company applies performance bonus at the end of the financial period, at the managment\'s discretion',
+    'apply annual leave': 'You need to seek permission from your direct supervisor, then apply it through the company\'s HRMS (Info-Tech). Once it is approved, you have to update your leave details on the company\'s google calender',
+    'apply medical leave': 'If you are sick, you have to informed your direct supervisor at the ealiest time, and send a picture of your medical certification to the HP Partner',
+    'what should i do if i am sick': 'If you are sick, you have to informed your direct supervisor at the ealiest time, and send a picture of your medical certification to the HP Partner',
+    'company policy is unfair': 'Well too bad, you had signed the contract. Since you are onboard the pirate\'s ship there is NO WAY OUT!',
+    'lunch break policy': 'We get a 1 hour break for lunch from 2pm to 3pm'
+}
 
 def understand_question_intent(question):
-    """Improved intent detection with better priority"""
+    """Improved intent detection"""
     question_lower = question.lower().strip()
     
     # HIGH PRIORITY: Application/process questions
@@ -94,50 +145,44 @@ def understand_question_intent(question):
     return None
 
 def search_hr_answer(question):
-    """Improved search with better matching"""
-    if df is None or len(df) == 0:
-        return "Database not loaded"
-    
+    """Search through the HR data"""
     question_lower = question.lower().strip()
     
     # Find ALL possible matches
     possible_matches = []
     
-    for index, row in df.iterrows():
-        if pd.notna(row['Question']) and pd.notna(row['Answer']):
-            sheet_question = str(row['Question']).lower().strip()
-            sheet_answer = str(row['Answer'])
-            score = 0
-            
-            # HIGHEST SCORE: Exact match with sheet question
-            if question_lower == sheet_question:
-                score += 100
-            
-            # HIGH SCORE: Intent-based matching
-            intent = understand_question_intent(question)
-            if intent and intent == sheet_question:
-                score += 90
-            
-            # MEDIUM SCORE: Contains matching
-            elif sheet_question in question_lower:
-                score += 70
-            elif question_lower in sheet_question:
-                score += 60
-            
-            # LOW SCORE: Keyword matching
-            else:
-                sheet_words = set(sheet_question.split())
-                user_words = set(question_lower.split())
-                common_words = sheet_words.intersection(user_words)
-                if common_words:
-                    score = len(common_words) * 10
-            
-            if score > 0:
-                possible_matches.append({
-                    'score': score,
-                    'answer': sheet_answer,
-                    'question': sheet_question
-                })
+    for sheet_question, sheet_answer in hr_data.items():
+        score = 0
+        
+        # HIGHEST SCORE: Exact match
+        if question_lower == sheet_question:
+            score += 100
+        
+        # HIGH SCORE: Intent-based matching
+        intent = understand_question_intent(question)
+        if intent and intent == sheet_question:
+            score += 90
+        
+        # MEDIUM SCORE: Contains matching
+        elif sheet_question in question_lower:
+            score += 70
+        elif question_lower in sheet_question:
+            score += 60
+        
+        # LOW SCORE: Keyword matching
+        else:
+            sheet_words = set(sheet_question.split())
+            user_words = set(question_lower.split())
+            common_words = sheet_words.intersection(user_words)
+            if common_words:
+                score = len(common_words) * 10
+        
+        if score > 0:
+            possible_matches.append({
+                'score': score,
+                'answer': sheet_answer,
+                'question': sheet_question
+            })
     
     # Select the best match
     if possible_matches:
@@ -168,27 +213,80 @@ def smart_search_hr_answer(question):
     
     return ask_deepseek(question)
 
-def chat_with_hr_bot():
-    print("\n" + "="*50)
-    print("🤖 HR CHATBOT - IMPROVED VERSION")
-    print("="*50)
-    print("Now with better answer matching!")
-    print("Type 'quit' to exit\n")
-    
-    while True:
-        user_question = input("💬 You: ").strip()
-        
-        if user_question.lower() in ['quit', 'exit', 'bye']:
-            print("👋 Goodbye!")
-            break
-            
-        if user_question:
-            answer = smart_search_hr_answer(user_question)
-            print(f"✅ Bot: {answer}")
-            print()
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "Woof woof! I'm HR Buddy! 🐶 I can help you with questions about annual leave, medical leave, probation, and other HR policies! What would you like to know?"}
+    ]
 
-# Start the chatbot
-if df is not None and len(df) > 0:
-    chat_with_hr_bot()
-else:
-    print("🚫 Cannot start chatbot")
+# Display chat messages
+for message in st.session_state.messages:
+    if message["role"] == "assistant":
+        with st.chat_message("assistant", avatar="🐶"):
+            st.markdown(f'<div class="bubble dog-bubble">{message["content"]}</div>', unsafe_allow_html=True)
+    else:
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(f'<div class="bubble user-bubble">{message["content"]}</div>', unsafe_allow_html=True)
+
+# Chat input
+if prompt := st.chat_input("Ask HR Buddy about company policies..."):
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Display user message immediately
+    with st.chat_message("user", avatar="👤"):
+        st.markdown(f'<div class="bubble user-bubble">{prompt}</div>', unsafe_allow_html=True)
+    
+    # Get and display bot response
+    with st.chat_message("assistant", avatar="🐶"):
+        with st.spinner("HR Buddy is thinking..."):
+            # Simulate thinking time
+            time.sleep(1)
+            response = smart_search_hr_answer(prompt)
+            
+            # Simulate typing animation
+            message_placeholder = st.empty()
+            full_response = ""
+            for chunk in response.split():
+                full_response += chunk + " "
+                time.sleep(0.05)
+                message_placeholder.markdown(f'<div class="bubble dog-bubble">{full_response}▌</div>', unsafe_allow_html=True)
+            message_placeholder.markdown(f'<div class="bubble dog-bubble">{response}</div>', unsafe_allow_html=True)
+    
+    # Add assistant response to chat history
+    st.session_state.messages.append({"role": "assistant", "content": response})
+
+# Sidebar with help
+with st.sidebar:
+    st.header("💡 Tips")
+    st.info("""
+    **Try asking:**
+    - How much annual leave?
+    - Medical leave during probation?
+    - How to apply MC?
+    - Lunch break policy?
+    - Do we have AWS?
+    - Work from home policy?
+    """)
+    
+    st.header("🐕 About HR Buddy")
+    st.write("""
+    I'm your friendly HR assistant! 
+    I know all about company policies and I'm here to help you 24/7!
+    
+    **I can help with:**
+    • Leave policies
+    • Probation questions
+    • Benefits information
+    • Company procedures
+    """)
+    
+    if st.button("Clear Chat History"):
+        st.session_state.messages = [
+            {"role": "assistant", "content": "Woof! Chat cleared! How can I help you? 🐶"}
+        ]
+        st.rerun()
+
+# Footer
+st.markdown("---")
+st.caption("HR Buddy 🐶 - Your friendly HR assistant | Made with ❤️ for employees")
