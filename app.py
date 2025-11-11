@@ -1,187 +1,194 @@
-import streamlit as st
+# HR Chatbot - IMPROVED VERSION
+import gspread
 import pandas as pd
-import time
+from google.colab import auth
+from google.auth import default
 
-# Page configuration
-st.set_page_config(
-    page_title="HR Buddy 🐶", 
-    page_icon="🐕", 
-    layout="centered"
-)
+print("🔐 Authenticating with Google...")
+auth.authenticate_user()
+creds, _ = default()
 
-# Custom CSS for cute styling
-st.markdown("""
-<style>
-    .main-header {
-        font-size: 3rem;
-        color: #FF6B6B;
-        text-align: center;
-        margin-bottom: 0;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #4ECDC4;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .bubble {
-        background: #E3F2FD;
-        border-radius: 20px;
-        padding: 15px;
-        margin: 10px 0;
-        border: 2px solid #BBDEFB;
-        font-size: 16px;
-    }
-    .user-bubble {
-        background: #FFEBEE;
-        border: 2px solid #FFCDD2;
-        margin-left: 20%;
-    }
-    .dog-bubble {
-        background: #E8F5E8;
-        border: 2px solid #C8E6C9;
-        margin-right: 20%;
-    }
-    .dog-container {
-        text-align: center;
-        margin: 20px 0;
-        font-family: monospace;
-    }
-</style>
-""", unsafe_allow_html=True)
+print("📊 Setting up Google Sheets connection...")
+gc = gspread.authorize(creds)
 
-# Header with cute dog
-st.markdown('<h1 class="main-header">HR Buddy 🐶</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-header">Your friendly HR assistant! Ask me about company policies!</p>', unsafe_allow_html=True)
+# Your Google Sheet ID
+SHEET_ID = "17kyGCoOQFUGyeAsdzxwUc51r5saoaQOSnl2Ugv4J5hI"
 
-# Cute dog ASCII art
-dog_art = """
-    / \\__
-   (    @\\___
-   /         O
-  /   (_____/
- /_____/   U
-"""
+print("🔗 Opening your HR database...")
+try:
+    spreadsheet = gc.open_by_key(SHEET_ID)
+    worksheet = spreadsheet.get_worksheet(0)
+    all_data = worksheet.get_all_values()
+    
+    if len(all_data) > 1:
+        df = pd.DataFrame(all_data[1:], columns=all_data[0])
+        df = df.dropna(how='all')
+        print(f"✅ Loaded {len(df)} HR policies")
+        
+    else:
+        print("❌ No data found")
+        df = None
+        
+except Exception as e:
+    print(f"❌ Error: {e}")
+    df = None
 
-st.markdown(f'<div class="dog-container"><pre>{dog_art}</pre></div>', unsafe_allow_html=True)
-
-# Your HR data
-sample_data = {
-    'Question': [
-        'annual leave', 'medical leave', 'sick leave', 'probation',
-        'take medical leave during probation', 'apply medical leave', 
-        'lunch break policy', 'work from home', 'aws', 'bonus'
-    ],
-    'Answer': [
-        'Full-time employees receive 14 paid annual leave days annually',
-        'Employees get 14 paid medical days annually',
-        'Employees get 14 sick days annually, in Singapore we called it medical leave',
-        'Probation is usually 6 months',
-        'During the first 3 months of employment, you are not entitled to any paid leave including paid medical leave',
-        'If you are sick, inform your direct supervisor and send MC to HP Partner',
-        'We get a 1 hour break for lunch from 2pm to 3pm',
-        'Remote work requires manager approval. Generally no WFH since COVID',
-        'The company does not apply AWS. Only performance based bonus',
-        'Performance bonus at management discretion at financial period end'
-    ]
-}
-
-df = pd.DataFrame(sample_data)
-
-# Chatbot logic
 def understand_question_intent(question):
+    """Improved intent detection with better priority"""
     question_lower = question.lower().strip()
     
-    if any(word in question_lower for word in ['apply', 'how to', 'procedure']):
-        if any(word in question_lower for word in ['mc', 'medical', 'sick']):
+    # HIGH PRIORITY: Application/process questions
+    if any(word in question_lower for word in ['what if', 'what should', 'not feeling well', 'sick', 'unwell', 'dont feel well']):
+        if any(word in question_lower for word in ['do', 'should', 'procedure', 'process']):
             return 'apply medical leave'
     
-    if any(word in question_lower for word in ['how many', 'days']):
-        if any(word in question_lower for word in ['medical', 'sick']):
+    if any(word in question_lower for word in ['apply', 'how to', 'procedure', 'process', 'steps']):
+        if any(word in question_lower for word in ['mc', 'medical', 'sick']):
+            return 'apply medical leave'
+        elif any(word in question_lower for word in ['annual', 'vacation', 'leave']):
+            return 'apply annual leave'
+    
+    # MEDIUM PRIORITY: Quantity questions
+    if any(word in question_lower for word in ['how many', 'how much', 'days', 'entitled']):
+        if any(word in question_lower for word in ['medical', 'sick', 'mc']):
             return 'sick leave'
+        elif any(word in question_lower for word in ['annual', 'vacation']):
+            return 'annual leave'
     
-    if any(word in question_lower for word in ['probation']):
-        if any(word in question_lower for word in ['medical', 'sick']):
+    # SPECIFIC COMBINATIONS
+    if any(word in question_lower for word in ['probation', 'probation period']):
+        if any(word in question_lower for word in ['medical leave', 'sick leave', 'mc', 'medical', 'take medical']):
             return 'take medical leave during probation'
-        return 'probation'
+        else:
+            return 'probation'
     
-    if any(word in question_lower for word in ['work from home', 'wfh']):
+    # GENERAL TOPICS
+    if any(word in question_lower for word in ['work from home', 'remote work', 'wfh']):
         return 'work from home'
     
-    if any(word in question_lower for word in ['aws']):
+    if any(word in question_lower for word in ['aws', '13th month']):
         return 'aws'
     
-    if any(word in question_lower for word in ['lunch break', 'lunch']):
+    if any(word in question_lower for word in ['lunch break', 'lunch', 'break']):
         return 'lunch break policy'
     
-    if any(word in question_lower for word in ['bonus']):
+    if any(word in question_lower for word in ['bonus', 'performance bonus']):
         return 'bonus'
     
-    if any(word in question_lower for word in ['medical leave', 'sick leave']):
+    if any(word in question_lower for word in ['health insurance', 'medical insurance']):
+        return 'health insurance'
+    
+    if any(word in question_lower for word in ['maternity', 'pregnancy']):
+        return 'maternity leave'
+    
+    if any(word in question_lower for word in ['unfair', 'complain', 'pirate ship']):
+        return 'company policy is unfair'
+    
+    # LOW PRIORITY: General terms
+    if any(word in question_lower for word in ['medical leave', 'sick leave', 'mc']):
         return 'medical leave'
     
-    if any(word in question_lower for word in ['annual leave', 'vacation']):
+    if any(word in question_lower for word in ['annual leave', 'vacation', 'holiday']):
         return 'annual leave'
     
     return None
 
-def smart_search_hr_answer(question):
-    topic_to_find = understand_question_intent(question)
+def search_hr_answer(question):
+    """Improved search with better matching"""
+    if df is None or len(df) == 0:
+        return "Database not loaded"
     
-    if topic_to_find:
-        for index, row in df.iterrows():
-            if str(row['Question']).lower().strip() == topic_to_find:
-                return row['Answer']
+    question_lower = question.lower().strip()
     
-    return "Woof! I'm not sure about that. Try asking about medical leave, annual leave, or probation! 🐶"
-
-# Chat interface
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "assistant", "content": "Woof woof! I'm HR Buddy! 🐶 Ask me about HR policies!"}
-    ]
-
-# Display chat history
-for message in st.session_state.messages:
-    if message["role"] == "assistant":
-        with st.chat_message("assistant", avatar="🐶"):
-            st.markdown(f'<div class="bubble dog-bubble">{message["content"]}</div>', unsafe_allow_html=True)
-    else:
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(f'<div class="bubble user-bubble">{message["content"]}</div>', unsafe_allow_html=True)
-
-# Chat input
-if prompt := st.chat_input("Ask HR Buddy..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    # Find ALL possible matches
+    possible_matches = []
     
-    with st.chat_message("user", avatar="👤"):
-        st.markdown(f'<div class="bubble user-bubble">{prompt}</div>', unsafe_allow_html=True)
-    
-    with st.chat_message("assistant", avatar="🐶"):
-        with st.spinner("Thinking..."):
-            time.sleep(1)
-            response = smart_search_hr_answer(prompt)
+    for index, row in df.iterrows():
+        if pd.notna(row['Question']) and pd.notna(row['Answer']):
+            sheet_question = str(row['Question']).lower().strip()
+            sheet_answer = str(row['Answer'])
+            score = 0
             
-            message_placeholder = st.empty()
-            full_response = ""
-            for chunk in response.split():
-                full_response += chunk + " "
-                time.sleep(0.05)
-                message_placeholder.markdown(f'<div class="bubble dog-bubble">{full_response}▌</div>', unsafe_allow_html=True)
-            message_placeholder.markdown(f'<div class="bubble dog-bubble">{response}</div>', unsafe_allow_html=True)
+            # HIGHEST SCORE: Exact match with sheet question
+            if question_lower == sheet_question:
+                score += 100
+            
+            # HIGH SCORE: Intent-based matching
+            intent = understand_question_intent(question)
+            if intent and intent == sheet_question:
+                score += 90
+            
+            # MEDIUM SCORE: Contains matching
+            elif sheet_question in question_lower:
+                score += 70
+            elif question_lower in sheet_question:
+                score += 60
+            
+            # LOW SCORE: Keyword matching
+            else:
+                sheet_words = set(sheet_question.split())
+                user_words = set(question_lower.split())
+                common_words = sheet_words.intersection(user_words)
+                if common_words:
+                    score = len(common_words) * 10
+            
+            if score > 0:
+                possible_matches.append({
+                    'score': score,
+                    'answer': sheet_answer,
+                    'question': sheet_question
+                })
     
-    st.session_state.messages.append({"role": "assistant", "content": response})
+    # Select the best match
+    if possible_matches:
+        possible_matches.sort(key=lambda x: x['score'], reverse=True)
+        return possible_matches[0]['answer']
+    
+    return None
 
-# Sidebar
-with st.sidebar:
-    st.header("💡 Try Asking:")
-    st.write("- How much annual leave?")
-    st.write("- Medical leave during probation?")
-    st.write("- How to apply MC?")
-    st.write("- Lunch break policy?")
+def ask_deepseek(question):
+    """AI fallback"""
+    question_lower = question.lower()
     
-    if st.button("Clear Chat"):
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Woof! Chat cleared! 🐶"}
-        ]
-        st.rerun()
+    if any(word in question_lower for word in ['apply', 'how to', 'procedure']):
+        if any(word in question_lower for word in ['medical', 'sick', 'mc']):
+            return "To apply for medical leave: Inform your supervisor and send MC to HP Partner."
+    
+    if any(word in question_lower for word in ['how many', 'days']):
+        if any(word in question_lower for word in ['medical', 'sick']):
+            return "Employees get 14 medical leave days annually."
+    
+    return "I'm not sure about that. Try asking about medical leave, annual leave, or other HR policies."
+
+def smart_search_hr_answer(question):
+    """HYBRID APPROACH"""
+    database_answer = search_hr_answer(question)
+    if database_answer:
+        return database_answer
+    
+    return ask_deepseek(question)
+
+def chat_with_hr_bot():
+    print("\n" + "="*50)
+    print("🤖 HR CHATBOT - IMPROVED VERSION")
+    print("="*50)
+    print("Now with better answer matching!")
+    print("Type 'quit' to exit\n")
+    
+    while True:
+        user_question = input("💬 You: ").strip()
+        
+        if user_question.lower() in ['quit', 'exit', 'bye']:
+            print("👋 Goodbye!")
+            break
+            
+        if user_question:
+            answer = smart_search_hr_answer(user_question)
+            print(f"✅ Bot: {answer}")
+            print()
+
+# Start the chatbot
+if df is not None and len(df) > 0:
+    chat_with_hr_bot()
+else:
+    print("🚫 Cannot start chatbot")
