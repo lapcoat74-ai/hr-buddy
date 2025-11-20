@@ -1,6 +1,9 @@
 import streamlit as st
 import pandas as pd
 import time
+from difflib import SequenceMatcher
+import requests
+import io
 
 # Page configuration
 st.set_page_config(
@@ -65,158 +68,127 @@ dog_art = """
 
 st.markdown(f'<div class="dog-container"><pre>{dog_art}</pre></div>', unsafe_allow_html=True)
 
-# YOUR ACTUAL HR DATA - Copy from your Google Sheets
-hr_data = {
-    'annual leave': 'Full-time employees receive 14 paid annual leave days annually',
-    'medical leave': 'Employees get 14 paid medical days annually',
-    'maternity leave': 'Maternity leave policy provides 16 weeks of paid leave',
-    'work from home': 'Remote work requires manager approval. In general, we do not practise work from home anymore since the end of COVID period',
-    'health insurance': 'We do not have health insurance, we offer reimbursement of medical expenses of up to $200 instead.',
-    'sick leave': 'Employees get 14 sick days annually, in Singapore we called it medical leave',
-    'probation': 'Probation is usually 6 months',
-    'take medical leave during probation': 'During the first 3 months of employment, you are not entitled to any paid leave including paid medical leave. Any medical leave taken during that period is considered unpaid leave',
-    'aws': 'The company does not apply AWS for our employees. Only perfomance based bonus.',
-    'bonus': 'The company applies performance bonus at the end of the financial period, at the managment\'s discretion',
-    'apply annual leave': 'You need to seek permission from your direct supervisor, then apply it through the company\'s HRMS (Info-Tech). Once it is approved, you have to update your leave details on the company\'s google calender',
-    'apply medical leave': 'If you are sick, you have to informed your direct supervisor at the ealiest time, and send a picture of your medical certification to the HP Partner',
-    'what should i do if i am sick': 'If you are sick, you have to informed your direct supervisor at the ealiest time, and send a picture of your medical certification to the HP Partner',
-    'company policy is unfair': 'Well too bad, you had signed the contract. Since you are onboard the pirate\'s ship there is NO WAY OUT!',
-    'lunch break policy': 'We get a 1 hour break for lunch from 2pm to 3pm'
-}
+# Load data from Public Google Sheet
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def load_google_sheet():
+    try:
+        # Your Google Sheet ID (from the URL)
+        SHEET_ID = "17kyGCoOQFUGyeAsdzxwUc51r5saoaQOSnl2Ugv4J5hI"
+        
+        # Export as CSV
+        url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
+        
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        # Read CSV data
+        df = pd.read_csv(io.StringIO(response.text))
+        
+        # Convert to dictionary
+        hr_data = {}
+        for index, row in df.iterrows():
+            if pd.notna(row.get('Question', '')) and pd.notna(row.get('Answer', '')):
+                hr_data[str(row['Question']).lower().strip()] = row['Answer']
+        
+        st.sidebar.success(f"✅ Loaded {len(hr_data)} questions from Google Sheets")
+        return hr_data
+        
+    except Exception as e:
+        st.sidebar.error(f"❌ Error loading Google Sheets: {e}")
+        st.sidebar.info("Using fallback data...")
+        # Fallback data
+        return {
+            'annual leave': 'Full-time employees receive 14 paid annual leave days annually',
+            'medical leave': 'Employees get 14 paid medical days annually',
+            'sick leave': 'Employees get 14 sick days annually',
+            'probation': 'Probation is usually 6 months',
+            'lunch break policy': 'We get a 1 hour break for lunch from 2pm to 3pm'
+        }
 
-def understand_question_intent(question):
-    """Improved intent detection"""
+# Load data from Google Sheets
+hr_data = load_google_sheet()
+
+# Display current questions in sidebar
+with st.sidebar:
+    st.header("📋 Available Questions")
+    if hr_data:
+        question_list = list(hr_data.keys())[:10]
+        for q in question_list:
+            st.write(f"• {q}")
+        if len(hr_data) > 10:
+            st.write(f"... and {len(hr_data) - 10} more")
+
+def smart_similarity(user_question, stored_question):
+    """Advanced similarity matching"""
+    user_lower = user_question.lower()
+    stored_lower = stored_question.lower()
+    
+    # Exact match
+    if user_lower == stored_lower:
+        return 1.0
+    
+    # One contains the other
+    if stored_lower in user_lower:
+        return 0.9
+    if user_lower in stored_lower:
+        return 0.85
+    
+    # Word overlap scoring
+    user_words = set(user_lower.split())
+    stored_words = set(stored_lower.split())
+    common_words = user_words.intersection(stored_words)
+    
+    if common_words:
+        word_score = len(common_words) / max(len(user_words), len(stored_words))
+        important_words = ['leave', 'medical', 'sick', 'annual', 'probation', 'apply', 'how', 'many', 'days']
+        bonus = sum(1 for word in important_words if word in user_lower and word in stored_lower) * 0.1
+        return min(0.8, word_score + bonus)
+    
+    return SequenceMatcher(None, user_lower, stored_lower).ratio()
+
+def find_best_answer(question):
+    """Finds the best matching answer"""
     question_lower = question.lower().strip()
     
-    # HIGH PRIORITY: Application/process questions
-    if any(word in question_lower for word in ['what if', 'what should', 'not feeling well', 'sick', 'unwell', 'dont feel well']):
-        if any(word in question_lower for word in ['do', 'should', 'procedure', 'process']):
-            return 'apply medical leave'
+    best_match = None
+    best_score = 0
     
-    if any(word in question_lower for word in ['apply', 'how to', 'procedure', 'process', 'steps']):
-        if any(word in question_lower for word in ['mc', 'medical', 'sick']):
-            return 'apply medical leave'
-        elif any(word in question_lower for word in ['annual', 'vacation', 'leave']):
-            return 'apply annual leave'
-    
-    # MEDIUM PRIORITY: Quantity questions
-    if any(word in question_lower for word in ['how many', 'how much', 'days', 'entitled']):
-        if any(word in question_lower for word in ['medical', 'sick', 'mc']):
-            return 'sick leave'
-        elif any(word in question_lower for word in ['annual', 'vacation']):
-            return 'annual leave'
-    
-    # SPECIFIC COMBINATIONS
-    if any(word in question_lower for word in ['probation', 'probation period']):
-        if any(word in question_lower for word in ['medical leave', 'sick leave', 'mc', 'medical', 'take medical']):
-            return 'take medical leave during probation'
-        else:
-            return 'probation'
-    
-    # GENERAL TOPICS
-    if any(word in question_lower for word in ['work from home', 'remote work', 'wfh']):
-        return 'work from home'
-    
-    if any(word in question_lower for word in ['aws', '13th month']):
-        return 'aws'
-    
-    if any(word in question_lower for word in ['lunch break', 'lunch', 'break']):
-        return 'lunch break policy'
-    
-    if any(word in question_lower for word in ['bonus', 'performance bonus']):
-        return 'bonus'
-    
-    if any(word in question_lower for word in ['health insurance', 'medical insurance']):
-        return 'health insurance'
-    
-    if any(word in question_lower for word in ['maternity', 'pregnancy']):
-        return 'maternity leave'
-    
-    if any(word in question_lower for word in ['unfair', 'complain', 'pirate ship']):
-        return 'company policy is unfair'
-    
-    # LOW PRIORITY: General terms
-    if any(word in question_lower for word in ['medical leave', 'sick leave', 'mc']):
-        return 'medical leave'
-    
-    if any(word in question_lower for word in ['annual leave', 'vacation', 'holiday']):
-        return 'annual leave'
-    
-    return None
-
-def search_hr_answer(question):
-    """Search through the HR data"""
-    question_lower = question.lower().strip()
-    
-    # Find ALL possible matches
-    possible_matches = []
-    
-    for sheet_question, sheet_answer in hr_data.items():
-        score = 0
+    for stored_question, answer in hr_data.items():
+        score = smart_similarity(question_lower, stored_question)
         
-        # HIGHEST SCORE: Exact match
-        if question_lower == sheet_question:
-            score += 100
+        # Special boosts
+        if 'how' in question_lower and 'how' in stored_question:
+            score += 0.15
+        if 'apply' in question_lower and 'apply' in stored_question:
+            score += 0.2
+        if 'many' in question_lower and 'many' in stored_question:
+            score += 0.15
         
-        # HIGH SCORE: Intent-based matching
-        intent = understand_question_intent(question)
-        if intent and intent == sheet_question:
-            score += 90
-        
-        # MEDIUM SCORE: Contains matching
-        elif sheet_question in question_lower:
-            score += 70
-        elif question_lower in sheet_question:
-            score += 60
-        
-        # LOW SCORE: Keyword matching
-        else:
-            sheet_words = set(sheet_question.split())
-            user_words = set(question_lower.split())
-            common_words = sheet_words.intersection(user_words)
-            if common_words:
-                score = len(common_words) * 10
-        
-        if score > 0:
-            possible_matches.append({
-                'score': score,
-                'answer': sheet_answer,
-                'question': sheet_question
-            })
+        if score > best_score:
+            best_score = score
+            best_match = (stored_question, answer, score)
     
-    # Select the best match
-    if possible_matches:
-        possible_matches.sort(key=lambda x: x['score'], reverse=True)
-        return possible_matches[0]['answer']
+    # Show matching info
+    with st.sidebar:
+        if best_match:
+            st.write(f"**Best Match:** '{best_match[0]}'")
+            st.write(f"**Confidence:** {best_match[2]:.1%}")
     
-    return None
-
-def ask_deepseek(question):
-    """AI fallback"""
-    question_lower = question.lower()
-    
-    if any(word in question_lower for word in ['apply', 'how to', 'procedure']):
-        if any(word in question_lower for word in ['medical', 'sick', 'mc']):
-            return "To apply for medical leave: Inform your supervisor and send MC to HP Partner."
-    
-    if any(word in question_lower for word in ['how many', 'days']):
-        if any(word in question_lower for word in ['medical', 'sick']):
-            return "Employees get 14 medical leave days annually."
-    
-    return "I'm not sure about that. Try asking about medical leave, annual leave, or other HR policies."
+    return best_match
 
 def smart_search_hr_answer(question):
-    """HYBRID APPROACH"""
-    database_answer = search_hr_answer(question)
-    if database_answer:
-        return database_answer
+    """Main function to find answers"""
+    result = find_best_answer(question)
     
-    return ask_deepseek(question)
+    if result and result[2] > 0.3:
+        return result[1]
+    else:
+        return "I'm not sure about that. Try rephrasing your question!"
 
 # Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role": "assistant", "content": "Woof woof! I'm HR Buddy! 🐶 I can help you with questions about annual leave, medical leave, probation, and other HR policies! What would you like to know?"}
+        {"role": "assistant", "content": "Woof woof! I'm HR Buddy! 🐶 I automatically read from your Google Sheet! What would you like to know?"}
     ]
 
 # Display chat messages
@@ -230,21 +202,16 @@ for message in st.session_state.messages:
 
 # Chat input
 if prompt := st.chat_input("Ask HR Buddy about company policies..."):
-    # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Display user message immediately
     with st.chat_message("user", avatar="👤"):
         st.markdown(f'<div class="bubble user-bubble">{prompt}</div>', unsafe_allow_html=True)
     
-    # Get and display bot response
     with st.chat_message("assistant", avatar="🐶"):
         with st.spinner("HR Buddy is thinking..."):
-            # Simulate thinking time
             time.sleep(1)
             response = smart_search_hr_answer(prompt)
             
-            # Simulate typing animation
             message_placeholder = st.empty()
             full_response = ""
             for chunk in response.split():
@@ -253,40 +220,22 @@ if prompt := st.chat_input("Ask HR Buddy about company policies..."):
                 message_placeholder.markdown(f'<div class="bubble dog-bubble">{full_response}▌</div>', unsafe_allow_html=True)
             message_placeholder.markdown(f'<div class="bubble dog-bubble">{response}</div>', unsafe_allow_html=True)
     
-    # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": response})
 
 # Sidebar with help
 with st.sidebar:
-    st.header("💡 Tips")
+    st.header("💡 How to Use")
     st.info("""
-    **Try asking:**
-    - How much annual leave?
-    - Medical leave during probation?
-    - How to apply MC?
-    - Lunch break policy?
-    - Do we have AWS?
-    - Work from home policy?
+    **Just update your Google Sheet:**
+    - Add new questions & answers
+    - I'll auto-learn in 5 minutes!
+    - No code changes needed!
     """)
     
-    st.header("🐕 About HR Buddy")
-    st.write("""
-    I'm your friendly HR assistant! 
-    I know all about company policies and I'm here to help you 24/7!
-    
-    **I can help with:**
-    • Leave policies
-    • Probation questions
-    • Benefits information
-    • Company procedures
-    """)
-    
-    if st.button("Clear Chat History"):
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Woof! Chat cleared! How can I help you? 🐶"}
-        ]
+    if st.button("🔄 Refresh from Google Sheets"):
+        st.cache_data.clear()
         st.rerun()
 
 # Footer
 st.markdown("---")
-st.caption("HR Buddy 🐶 - Your friendly HR assistant | Made with ❤️ for employees")
+st.caption("HR Buddy 🐶 - Connected to Google Sheets | Updates automatically!")
