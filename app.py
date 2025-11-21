@@ -4,6 +4,7 @@ import time
 from difflib import SequenceMatcher
 import requests
 import io
+import re
 
 # Page configuration
 st.set_page_config(
@@ -96,28 +97,65 @@ def load_google_sheet():
 
 hr_data = load_google_sheet()
 
-# Your existing chatbot functions
+def is_nonsense_question(question):
+    """Detect if the question is nonsense or gibberish"""
+    question_lower = question.lower().strip()
+    
+    # Check for very short questions
+    if len(question_lower) < 3:
+        return True
+    
+    # Check for random characters or repeated letters
+    if re.match(r'^[^a-zA-Z]*$', question_lower):  # Only non-letters
+        return True
+    
+    # Check for repeated characters (like "aaaa", "xyzxyz")
+    if re.match(r'^(.)\1+$', question_lower):  # All same character
+        return True
+    
+    # Check for keyboard mashing (random characters without spaces)
+    if len(question_lower) > 10 and ' ' not in question_lower:
+        random_char_ratio = len(re.findall(r'[aeiou]', question_lower)) / len(question_lower)
+        if random_char_ratio < 0.1:  # Very few vowels = likely nonsense
+            return True
+    
+    # Check for common nonsense patterns
+    nonsense_patterns = [
+        'asdf', 'qwerty', 'zxcv', 'testing', 'test', 'hello', 'hi', 'hey',
+        'abc', '123', 'lorem', 'ipsum'
+    ]
+    
+    if any(pattern in question_lower for pattern in nonsense_patterns):
+        return True
+    
+    return False
+
 def smart_similarity(user_question, stored_question):
     user_lower = user_question.lower()
     stored_lower = stored_question.lower()
     
+    # Exact match
     if user_lower == stored_lower:
         return 1.0
+    
+    # One contains the other
     if stored_lower in user_lower:
         return 0.9
     if user_lower in stored_lower:
         return 0.85
     
+    # Word overlap scoring
     user_words = set(user_lower.split())
     stored_words = set(stored_lower.split())
     common_words = user_words.intersection(stored_words)
     
     if common_words:
         word_score = len(common_words) / max(len(user_words), len(stored_words))
-        important_words = ['leave', 'medical', 'sick', 'annual', 'probation', 'apply', 'how', 'many', 'days']
+        important_words = ['leave', 'medical', 'sick', 'annual', 'probation', 'apply', 'how', 'many', 'days', 'policy', 'work', 'home', 'lunch', 'break', 'bonus', 'aws']
         bonus = sum(1 for word in important_words if word in user_lower and word in stored_lower) * 0.1
         return min(0.8, word_score + bonus)
     
+    # Sequence similarity as fallback
     return SequenceMatcher(None, user_lower, stored_lower).ratio()
 
 def find_best_answer(question):
@@ -125,28 +163,50 @@ def find_best_answer(question):
     best_match = None
     best_score = 0
     
+    # First check if it's nonsense
+    if is_nonsense_question(question):
+        return None, 0
+    
     for stored_question, answer in hr_data.items():
         score = smart_similarity(question_lower, stored_question)
         
+        # Special boosts for relevant patterns
         if 'how' in question_lower and 'how' in stored_question:
             score += 0.15
         if 'apply' in question_lower and 'apply' in stored_question:
             score += 0.2
         if 'many' in question_lower and 'many' in stored_question:
             score += 0.15
+        if 'what' in question_lower and 'what' in stored_question:
+            score += 0.1
         
         if score > best_score:
             best_score = score
             best_match = (stored_question, answer, score)
     
-    return best_match
+    return best_match, best_score
 
 def smart_search_hr_answer(question):
-    result = find_best_answer(question)
-    if result and result[2] > 0.3:
+    result, confidence = find_best_answer(question)
+    
+    # Debug info in sidebar
+    with st.sidebar:
+        if confidence > 0:
+            st.write(f"**Confidence:** {confidence:.1%}")
+            if result:
+                st.write(f"**Matched:** '{result[0]}'")
+    
+    # High confidence: return the answer
+    if result and confidence > 0.6:
         return result[1]
+    
+    # Medium confidence: return answer but mention it might not be perfect
+    elif result and confidence > 0.4:
+        return f"I think you're asking about: {result[0]}. {result[1]}"
+    
+    # Low confidence or nonsense: ask for clarification
     else:
-        return "I'm not sure about that. Try rephrasing your question!"
+        return "I'm not sure I understand. Could you try rephrasing your question about HR policies? For example, you could ask about 'annual leave', 'medical leave', or 'work from home' policies."
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -189,25 +249,19 @@ if prompt := st.chat_input("Ask HR Buddy about company policies..."):
 with st.sidebar:
     st.header("💡 Tips")
     st.info("""
-    **Try asking:**
-    - How much annual leave?
-    - Medical leave during probation?
-    - How to apply MC?
-    - Lunch break policy?
-    - Do we have AWS?
-    - Work from home policy?
+    **Try asking about:**
+    - Annual leave days
+    - Medical leave procedure  
+    - Lunch break policy
+    - Work from home
+    - Probation period
+    - Bonus policy
     """)
     
     st.header("🐕 About HR Buddy")
     st.write("""
     I'm your friendly HR assistant! 
-    I know all about company policies and I'm here to help you 24/7!
-    
-    **I can help with:**
-    • Leave policies
-    • Probation questions
-    • Benefits information
-    • Company procedures
+    I'll try to understand your questions and give helpful answers about company policies.
     """)
     
     st.header("📊 Stats")
