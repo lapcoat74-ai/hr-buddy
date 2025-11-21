@@ -69,6 +69,39 @@ dog_art = """
 
 st.markdown(f'<div class="dog-container"><pre>{dog_art}</pre></div>', unsafe_allow_html=True)
 
+# Emoji conversion function
+def convert_text_emojis(text):
+    """Convert [text] back to actual emojis"""
+    if not isinstance(text, str):
+        return text
+    
+    emoji_map = {
+        '[angel]': '😇',
+        '[smile]': '😊',
+        '[check]': '✅',
+        '[cross]': '❌',
+        '[dog]': '🐶',
+        '[briefcase]': '💼',
+        '[clipboard]': '📋',
+        '[question]': '❓',
+        '[bulb]': '💡',
+        '[rocket]': '🚀',
+        '[warning]': '⚠️',
+        '[bell]': '🔔',
+        '[chart]': '📊',
+        '[refresh]': '🔄',
+        '[trash]': '🗑️',
+        '[heart]': '❤️',
+        '[star]': '⭐',
+        '[thumbsup]': '👍',
+        '[thumbsdown]': '👎'
+    }
+    
+    for text_code, emoji in emoji_map.items():
+        text = text.replace(text_code, emoji)
+    
+    return text
+
 # Load data from Public Google Sheet
 @st.cache_data(ttl=300)
 def load_google_sheet():
@@ -82,7 +115,9 @@ def load_google_sheet():
         hr_data = {}
         for index, row in df.iterrows():
             if pd.notna(row.get('Question', '')) and pd.notna(row.get('Answer', '')):
-                hr_data[str(row['Question']).lower().strip()] = row['Answer']
+                question = str(row['Question']).lower().strip()
+                answer = convert_text_emojis(str(row['Answer']))  # Convert emojis here
+                hr_data[question] = answer
         
         st.sidebar.success(f"✅ Loaded {len(hr_data)} questions")
         return hr_data
@@ -92,8 +127,7 @@ def load_google_sheet():
         return {
             'annual leave': 'Full-time employees receive 14 paid annual leave days annually',
             'medical leave': 'Employees get 14 paid medical days annually',
-            'probation': 'Probation is usually 6 months',
-            'probation leave': 'During probation period, all leaves are considered no-pay leave',
+            'sick leave': 'Employees get 14 sick days annually',
         }
 
 hr_data = load_google_sheet()
