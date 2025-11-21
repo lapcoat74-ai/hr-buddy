@@ -78,8 +78,6 @@ def convert_text_emojis(text):
     emoji_map = {
         '[angel]': '😇',
         '[smile]': '😊',
-        '[thinking]':'🤔',
-        '[gasp]':''🫢',
         '[check]': '✅',
         '[cross]': '❌',
         '[dog]': '🐶',
@@ -96,7 +94,10 @@ def convert_text_emojis(text):
         '[heart]': '❤️',
         '[star]': '⭐',
         '[thumbsup]': '👍',
-        '[thumbsdown]': '👎'
+        '[thumbsdown]': '👎',
+        '[thinking]': '🤔',
+        '[shock]': '😲',   
+        '[surprise]': '😮' 
     }
     
     for text_code, emoji in emoji_map.items():
