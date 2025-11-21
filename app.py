@@ -4,7 +4,6 @@ import time
 from difflib import SequenceMatcher
 import requests
 import io
-import base64
 
 # Page configuration
 st.set_page_config(
@@ -51,22 +50,6 @@ st.markdown("""
         margin: 20px 0;
         font-family: monospace;
     }
-    .qr-container {
-        text-align: center;
-        padding: 15px;
-        background: #f8f9fa;
-        border-radius: 10px;
-        margin: 10px 0;
-        border: 2px solid #4ECDC4;
-    }
-    .share-link {
-        background: #E8F5E8;
-        padding: 10px;
-        border-radius: 10px;
-        margin: 10px 0;
-        word-break: break-all;
-        font-size: 14px;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -84,18 +67,6 @@ dog_art = """
 """
 
 st.markdown(f'<div class="dog-container"><pre>{dog_art}</pre></div>', unsafe_allow_html=True)
-
-# Generate QR Code using online service (no libraries needed)
-def get_qr_code_url(text):
-    """Generate QR code using free online API"""
-    # Using Google Charts API for QR codes (free)
-    encoded_text = requests.utils.quote(text)
-    qr_url = f"https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl={encoded_text}&choe=UTF-8"
-    return qr_url
-
-# Your chatbot URL
-chatbot_url = "https://d2nhanqr7atszvlsvzuvel.streamlit.app/"
-qr_code_url = get_qr_code_url(chatbot_url)
 
 # Load data from Public Google Sheet
 @st.cache_data(ttl=300)
@@ -214,37 +185,30 @@ if prompt := st.chat_input("Ask HR Buddy about company policies..."):
     
     st.session_state.messages.append({"role": "assistant", "content": response})
 
-# Enhanced Sidebar with QR Code
+# Sidebar with help
 with st.sidebar:
-    st.header("📱 Share HR Buddy")
+    st.header("💡 Tips")
+    st.info("""
+    **Try asking:**
+    - How much annual leave?
+    - Medical leave during probation?
+    - How to apply MC?
+    - Lunch break policy?
+    - Do we have AWS?
+    - Work from home policy?
+    """)
     
-    # QR Code Section
-    st.markdown('<div class="qr-container">', unsafe_allow_html=True)
-    st.image(qr_code_url, caption="📲 Scan QR Code to Access", use_column_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.header("🐕 About HR Buddy")
+    st.write("""
+    I'm your friendly HR assistant! 
+    I know all about company policies and I'm here to help you 24/7!
     
-    # Shareable Link
-    st.markdown("**🔗 Direct Link:**")
-    st.markdown(f'<div class="share-link">{chatbot_url}</div>', unsafe_allow_html=True)
-    
-    # Copy to clipboard button
-    if st.button("📋 Copy Link to Clipboard"):
-        st.code(chatbot_url, language="text")
-        st.success("Link copied! Paste it anywhere to share.")
-    
-    st.header("💡 Popular Questions")
-    popular_questions = [
-        "How much annual leave?",
-        "Medical leave procedure?", 
-        "Lunch break policy?",
-        "Work from home?",
-        "Probation period?"
-    ]
-    
-    for q in popular_questions:
-        if st.button(f"❓ {q}", key=q):
-            st.session_state.messages.append({"role": "user", "content": q})
-            st.rerun()
+    **I can help with:**
+    • Leave policies
+    • Probation questions
+    • Benefits information
+    • Company procedures
+    """)
     
     st.header("📊 Stats")
     st.metric("Questions in Database", len(hr_data))
@@ -256,10 +220,10 @@ with st.sidebar:
     
     if st.button("🗑️ Clear Chat"):
         st.session_state.messages = [
-            {"role": "assistant", "content": "Chat cleared! How can I help you? 🐶"}
+            {"role": "assistant", "content": "Woof! Chat cleared! How can I help you? 🐶"}
         ]
         st.rerun()
 
 # Footer
 st.markdown("---")
-st.caption("HR Buddy 🐶 - Scan the QR code or share the link with colleagues!")
+st.caption("HR Buddy 🐶 - Your friendly HR assistant | Made with ❤️ for employees")
