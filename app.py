@@ -92,7 +92,8 @@ def load_google_sheet():
         return {
             'annual leave': 'Full-time employees receive 14 paid annual leave days annually',
             'medical leave': 'Employees get 14 paid medical days annually',
-            'sick leave': 'Employees get 14 sick days annually',
+            'probation': 'Probation is usually 6 months',
+            'probation leave': 'During probation period, all leaves are considered no-pay leave',
         }
 
 hr_data = load_google_sheet()
@@ -101,25 +102,20 @@ def is_nonsense_question(question):
     """Detect if the question is nonsense or gibberish"""
     question_lower = question.lower().strip()
     
-    # Check for very short questions
     if len(question_lower) < 3:
         return True
     
-    # Check for random characters or repeated letters
-    if re.match(r'^[^a-zA-Z]*$', question_lower):  # Only non-letters
+    if re.match(r'^[^a-zA-Z]*$', question_lower):
         return True
     
-    # Check for repeated characters (like "aaaa", "xyzxyz")
-    if re.match(r'^(.)\1+$', question_lower):  # All same character
+    if re.match(r'^(.)\1+$', question_lower):
         return True
     
-    # Check for keyboard mashing (random characters without spaces)
     if len(question_lower) > 10 and ' ' not in question_lower:
         random_char_ratio = len(re.findall(r'[aeiou]', question_lower)) / len(question_lower)
-        if random_char_ratio < 0.1:  # Very few vowels = likely nonsense
+        if random_char_ratio < 0.1:
             return True
     
-    # Check for common nonsense patterns
     nonsense_patterns = [
         'asdf', 'qwerty', 'zxcv', 'testing', 'test', 'hello', 'hi', 'hey',
         'abc', '123', 'lorem', 'ipsum'
@@ -151,11 +147,10 @@ def smart_similarity(user_question, stored_question):
     
     if common_words:
         word_score = len(common_words) / max(len(user_words), len(stored_words))
-        important_words = ['leave', 'medical', 'sick', 'annual', 'probation', 'apply', 'how', 'many', 'days', 'policy', 'work', 'home', 'lunch', 'break', 'bonus', 'aws']
+        important_words = ['leave', 'medical', 'sick', 'annual', 'probation', 'apply', 'how', 'many', 'days', 'policy', 'work', 'home', 'lunch', 'break', 'bonus', 'aws', 'compassionate', 'marriage']
         bonus = sum(1 for word in important_words if word in user_lower and word in stored_lower) * 0.1
         return min(0.8, word_score + bonus)
     
-    # Sequence similarity as fallback
     return SequenceMatcher(None, user_lower, stored_lower).ratio()
 
 def find_best_answer(question):
@@ -167,6 +162,21 @@ def find_best_answer(question):
     if is_nonsense_question(question):
         return None, 0
     
+    # Special handling for probation + leave combinations
+    if any(word in question_lower for word in ['probation', 'probation period']):
+        if any(word in question_lower for word in ['annual leave', 'medical leave', 'compassionate leave', 'marriage leave', 'leave']):
+            # Boost scores for probation + leave questions
+            for stored_question, answer in hr_data.items():
+                if 'probation' in stored_question and any(leave in stored_question for leave in ['leave', 'annual', 'medical', 'compassionate', 'marriage']):
+                    score = smart_similarity(question_lower, stored_question) + 0.3  # Big boost
+                    if score > best_score:
+                        best_score = score
+                        best_match = (stored_question, answer, score)
+            
+            if best_match:  # If we found a probation+leave match, return it
+                return best_match, best_score
+    
+    # Normal matching for other questions
     for stored_question, answer in hr_data.items():
         score = smart_similarity(question_lower, stored_question)
         
@@ -197,16 +207,12 @@ def smart_search_hr_answer(question):
                 st.write(f"**Matched:** '{result[0]}'")
     
     # High confidence: return the answer
-    if result and confidence > 0.6:
+    if result and confidence > 0.5:
         return result[1]
-    
-    # Medium confidence: return answer but mention it might not be perfect
-    elif result and confidence > 0.4:
-        return f"I think you're asking about: {result[0]}. {result[1]}"
     
     # Low confidence or nonsense: ask for clarification
     else:
-        return "I'm not sure I understand. Could you try rephrasing your question about HR policies? For example, you could ask about 'annual leave', 'medical leave', or 'work from home' policies."
+        return "I'm not sure I understand. Could you try rephrasing your question about HR policies? For example, you could ask about 'annual leave', 'medical leave during probation', or 'work from home' policies."
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -250,12 +256,11 @@ with st.sidebar:
     st.header("💡 Tips")
     st.info("""
     **Try asking about:**
-    - Annual leave days
+    - Annual leave during probation
     - Medical leave procedure  
-    - Lunch break policy
-    - Work from home
-    - Probation period
-    - Bonus policy
+    - Probation period leave
+    - Work from home policy
+    - Bonus and AWS
     """)
     
     st.header("🐕 About HR Buddy")
